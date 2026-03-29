@@ -1,0 +1,435 @@
+<?php include_once $_SERVER['DOCUMENT_ROOT']."/includes/common.php"; 
+$DateUtilObj = new DateUtil();
+$acno = $_REQUEST['account_no'];
+
+$AccObj = new Account();
+$account_owner = $AccObj->GetAccountOwner($acno);
+
+$UserObj = new User();
+$access_permission = $UserObj->CanAccessContextObject('ACCOUNT', $account_owner);
+
+$FROM_PAGE = '';
+$ud_remark_types = array();
+if(isset($_REQUEST['FROM_PAGE']) && $_REQUEST['FROM_PAGE'] != '') {
+    $FROM_PAGE = $_REQUEST['FROM_PAGE'];
+}
+
+$MapleUtilObj = new MapleUtil();
+if($MapleUtilObj->CanDeleteAccountRemark() && $access_permission){
+    $can_delete_remark = 'YES';
+} else {
+    $can_delete_remark = 'NO';
+}
+
+$RemarkTypeObj = new RemarkType();
+$all_remarktypes = $RemarkTypeObj->GetContextAllRemarkTypes('ACCOUNT');
+?>
+<div id="account_history" class="col-sm-12">
+	<div class="panel panel-default">
+		<div class="panel-body">
+			<input type="hidden" name="max_report_rows"  id="max_report_rows" value="<?php echo MAX_REPORT_ROWS; ?>" >
+            <button class="btn btn-warning mb5 btn-sm pull-right m0 ml10 pr5" id="export_remarks_to_excel_btn" onclick="javascript:CheckExportRemarksToExcel();" type="button" title="Export to Excel"><i class=" icomoon-icon-file-excel"></i></button>
+           	<button type="button" class="btn btn-primary ml10 pull-right" onclick="javascript:AddContextWiseRemark('ACCOUNT','<?php echo $acno?>','<?php echo $FROM_PAGE;?>');"><i class="fa fa-plus"></i>Note/Remarks</button>  
+            <button class="btn btn-info pull-right" id="show_sys_update_btn" onclick="javascript:ShowSystemUpdates();">Show System Updates</button>
+			<button class="btn btn-primary pull-right hide" id="hide_sys_update_btn" onclick="javascript:HideSystemUpdates();">Hide System Updates</button>
+			
+			<div class="btn-group">
+				<button id="account_remark_btn" type="button" class="btn btn-info">Remark Types</button>
+				<button type="button" class="btn  btn-info dropdown-toggle" data-toggle="dropdown">
+					<span class="caret"></span>
+					<span class="sr-only">Toggle Dropdown</span>
+				</button>
+				
+				<ul class="dropdown-menu" role="menu" id="remark_types_dropdown">
+				<?php
+                    $ud_remarktypes = $all_remarktypes['USER_DEFINED'];
+                    $ud_remark_count = count($ud_remarktypes); 
+                  //   if($ud_remark_count > 5) {
+                    echo '<li>
+                    <a class="col-xs-12">
+                    <div class="checkbox-custom pull-left">
+                    <input name="remark_type_val[]" type="checkbox" id="masterCheckbox" checked />
+                    <label class="normal" for="none"><strong>Select/UnSelect All</strong>
+                    </div>
+                    </a>
+                    </li>'
+                    
+                       // }
+                        ?>
+                       
+                    	
+                 <?php
+					$ud_remarktypes = $all_remarktypes['USER_DEFINED'];
+					if(count($ud_remarktypes) > 0) {
+						foreach($ud_remarktypes as $rem_type) {
+						    array_push($ud_remark_types,$rem_type);
+						    echo '<li><a class="col-xs-12">
+                                      <div class="checkbox-custom pull-left">
+                                           <input name="remark_type_val[]" type="checkbox" value="'.$rem_type.'"  id="'.$rem_type.'" checked /><label class="normal" for="'.$rem_type.'">'.$rem_type.'</label>
+                                      </div>
+                                  </a></li>';
+						}
+					}
+					?> 
+					<li class="divider col-xs-12"></li>
+					 <li id="more_options"><a role="button">MORE</a></li>
+					<?php
+					$internal_remarktypes = $all_remarktypes['INTERNAL'];
+					foreach($internal_remarktypes as $rem_type) {
+					    echo '<li class="hide sys_remarks"><a class="col-xs-12">
+                                   <div class="checkbox-custom pull-left">
+                                       <input name="remark_type_val[]" type="checkbox" value="'.$rem_type.'"   id="'.$rem_type.'" /><label class="normal"   for="'.$rem_type.'">'.$rem_type.'</label>
+                                   </div>
+                              </a></li>';
+					}
+					?> 
+				</ul>
+			</div>
+				<div class="well well-sm mb5 s12 mt5 hide" id="remark_filter_div">
+					<div class="strong mb0">Filter: <span class="m0 text-muted" id="list_heading">Remark Types within <?php echo implode(', ',$ud_remark_types)?></span></div>				
+			    </div>
+			<div class="vertical-scroll" style="max-height:500px;" onscroll="HidePopover();">
+						
+			<ul class="list-unstyled col-xs-12" id="history_timeline" CAN_DELETE_REMARK="<?php echo $can_delete_remark; ?>"  limit_from="0">
+					
+			</ul>
+				
+			</div>
+		
+			
+			<?php if($FROM_PAGE == 'ACCOUNT_DETAIL'){ ?>
+			<a id="more_history_btn" onclick="javascript:LoadMoreDetailSysUdates(15, 'history_timeline', this.id);" role="button" class="btn btn-default timeline-load-more-btn"><i class="fa fa-refresh"></i> Load more </a>
+			<?php } else {?>
+			<a id="more_history_btn" onclick="javascript:LoadMoreAccountSysUdates(15, 'history_timeline', this.id);" role="button" class="btn btn-default timeline-load-more-btn"><i class="fa fa-refresh"></i> Load more </a>
+			<?php } ?>
+			<input type="hidden" name="filter_remark_type" id="filter_remark_type" value='<?php echo json_encode($ud_remark_types);?>' remark_type_count="<?php echo count($ud_remark_types);?>"></input>
+			<input type="hidden" name="sys_updates" id="sys_updates" value="0"></input>
+		</div>
+	</div>
+</div>
+<script>
+var from_page = '<?php echo $FROM_PAGE;?>';
+$('.vertical-scroll').slimScroll({
+	height: ''
+});
+
+//FETCHING THE REMARK TYPES LOADED & THE COUNT
+var remark_filter_count = parseInt($("#filter_remark_type").attr('remark_type_count'));
+var remark_filter = $("#filter_remark_type").val();
+if(remark_filter != ''){
+	remark_filter = JSON.parse(remark_filter); 
+}
+
+// for colosing the popover on defferent events (onclick, scroll, mouseout, cancel)
+$('body').on('click', function (e) {
+	// hide any open popovers when the anywhere else in the body is clicked
+	if (!$('[data-toggle=popover]').is(e.target) && $('[data-toggle=popover]').has(e.target).length === 0 && $('.popover').has(e.target).length === 0) {
+		$('[data-toggle=popover]').popover('hide');
+	}
+});
+
+$("#account_history #remark_types_dropdown #more_options").bind('click',function(){	
+	$("#account_history #remark_types_dropdown #more_options").addClass('hide');
+	$("#account_history #remark_types_dropdown li").each(function(){
+		if($(this).hasClass('hide') && $(this).attr('id') != 'more_options'){
+			$(this).removeClass('hide');
+		}	
+	});
+	return false;
+});
+$(document).ready(function() {
+    // Master Checkbox functionality
+    $("#masterCheckbox").on('change', function() {
+        // Get the checked state of the master checkbox
+        var isChecked = $(this).is(':checked');
+        
+        // Update all USER_DEFINED checkboxes (visible ones only)
+        $("#remark_types_dropdown input[type='checkbox']:visible")
+            .not("#masterCheckbox")
+            .prop('checked', isChecked);
+        
+        // Update the remark filter based on the current selections
+        updateRemarkFilter();
+    });
+
+    // Individual checkbox functionality
+    $("#remark_types_dropdown input[type='checkbox']").not("#masterCheckbox").on('change', function() {
+        // Update the master checkbox state based on individual checkboxes
+        updateMasterCheckbox();
+        
+        // Update the remark filter based on the current selections
+        updateRemarkFilter();
+    });
+
+    // Function to update the remark filter based on checked boxes
+    function updateRemarkFilter() {
+        var selectedRemarks = [];
+        
+        // Collect all checked remark types
+        $('#remark_types_dropdown input[type="checkbox"]:checked').not("#masterCheckbox").each(function() {
+            var remarkType = $.trim($(this).val());
+            if (remarkType) selectedRemarks.push(remarkType);
+        });
+
+        // Update the hidden filter field
+        $("#filter_remark_type").val(JSON.stringify(selectedRemarks));
+        $("#filter_remark_type").attr('remark_type_count', selectedRemarks.length);
+
+        // UI Updates
+        if (selectedRemarks.length > 0) {
+            $("#remark_filter_div").removeClass("hide");
+            $("#history_timeline").html(""); // Clear existing timeline
+            $("#more_history_btn").show();
+            $("#list_heading").text('Remark Types within ' + selectedRemarks.join(", "));
+            
+            // Make a SINGLE call to load remarks based on selected filter
+            if (from_page == 'ACCOUNT_DETAIL') {
+                LoadMoreDetailSysUdates(15, 'history_timeline', 'more_history_btn');
+            } else {
+                LoadMoreAccountSysUdates(15, 'history_timeline', 'more_history_btn');
+            }
+        } else {
+            $("#remark_filter_div").addClass("hide");
+            $("#history_timeline").html('<div class="color-red-dark mt10">No remark type is selected.</div>').addClass("mb15");
+            $("#more_history_btn").hide();
+        }
+    }
+
+    // Update master checkbox based on individual checkbox states
+    function updateMasterCheckbox() {
+        var $checkboxes = $("#remark_types_dropdown input[type='checkbox']:visible").not("#masterCheckbox");
+        var allChecked = $checkboxes.length > 0 && $checkboxes.length === $checkboxes.filter(":checked").length;
+        $("#masterCheckbox").prop("checked", allChecked);
+    }
+
+    // When showing system updates
+    $("#show_sys_update_btn").click(function() {
+        $("#sys_updates").val('1');
+        $("#show_sys_update_btn").addClass('hide');
+        $("#hide_sys_update_btn").removeClass('hide');
+        
+        // Check all checkboxes (including system ones)
+        $("#remark_types_dropdown input[type='checkbox']").prop('checked', true);
+        
+        updateRemarkFilter();
+    });
+
+    // When hiding system updates
+    $("#hide_sys_update_btn").click(function() {
+        $("#sys_updates").val('0');
+        $("#show_sys_update_btn").removeClass('hide');
+        $("#hide_sys_update_btn").addClass('hide');
+        
+        // Uncheck all system remark checkboxes
+        $(".sys_remarks input[type='checkbox']").prop('checked', false);
+        
+        updateRemarkFilter();
+        updateMasterCheckbox();
+    });
+});
+
+
+
+$("#remark_types_dropdown li a input").click(function(){
+	var remarktype = $.trim($(this).val());
+	var index = remark_filter.indexOf(remarktype);
+    var remark_filter_count = parseInt($("#filter_remark_type").attr('remark_type_count'));  
+	
+	if(remarktype != 'MORE'){
+	
+    	$('#history_timeline').html('');
+    	$('#history_timeline').attr('limit_from',0);
+    	$('#more_history_btn').show();
+    	
+        //INCREMENTING THE SELECTED REMARK TYPE COUNTER & INCLUDING IN THE REMARK FILTER ARRAY, IF SHOW ALL SYSTEM UPDATE IS SELECTED
+        if($("#hide_sys_update_btn").is(':visible')) {
+            $.each($("#remark_types_dropdown li"), function(){
+            	var rem_type = $.trim($(this).text());
+            	if(rem_type != 'MORE' && rem_type != '' && remarktype != rem_type){ 
+                	if($(this).hasClass('sys_remarks')){
+                    	if($('#remark_types_dropdown [value="'+rem_type+'"]').is(':checked')) {
+                    		var sys_rem_index = remark_filter.indexOf(rem_type);
+                    		if(sys_rem_index == -1){
+                        		remark_filter.push(rem_type);
+            					//remark_filter_count++;
+            				}
+                    	}
+                    }
+                }
+            	
+        	});
+        }
+    
+    
+		//IF REMARK TYPE IS CHECKED, INCREMENTING THE SELECTED REMARK TYPE COUNTER & INCLUDING IN THE REMARK FILTER ARRAY 
+		if($(this).is(':checked')){
+			if(index == -1){
+    			remark_filter.push(remarktype);
+    			remark_filter_count++;
+      			$("#filter_remark_type").attr('remark_type_count',remark_filter_count);
+      		}
+		}
+		//IF REMARK TYPE IS UN CHECKED, DECREMENTING THE SELECTED REMARK TYPE COUNTER & REMOVING IN THE REMARK FILTER ARRAY
+		else {
+ 			if (index !== -1) {
+      			remark_filter.splice(index, 1);
+  				if(remark_filter_count > 0){
+          			remark_filter_count--;
+      				$("#filter_remark_type").attr('remark_type_count',remark_filter_count);
+      			}
+ 			}
+		}
+		
+		$("#filter_remark_type").val(JSON.stringify(remark_filter));
+		
+		//IF SELECTED REMARK TYPE IS NOT EMPTY , LOADING THE REMARKS
+    	if(remark_filter_count > 0) {
+     		$("#remark_filter_div").removeClass('hide');
+     		
+     		if(from_page == 'ACCOUNT_DETAIL') {
+     			LoadMoreDetailSysUdates(15, 'history_timeline', 'more_history_btn');
+     		}
+     		else{
+     			LoadMoreAccountSysUdates(15, 'history_timeline', 'more_history_btn');
+     		}
+     	}
+     	else {
+     		$("#history_timeline").html('<div class="color-red-dark mt10">No remark type is selected.</div>').addClass('mb15');
+     		$("#more_history_btn").hide();
+     		$("#remark_filter_div").addClass('hide');
+     	}
+    
+    	$("#list_heading").html('Remark Types within '+ remark_filter.join(", "));
+
+	}
+});
+
+function ShowSystemUpdates() {
+	HidePopover();
+	$("#sys_updates").val('1');
+	$("#filter_remark_type").val('');
+	$('#history_timeline').html('');
+	$('#history_timeline').attr('limit_from',0);
+	$('#more_history_btn').show();
+
+	$("#show_sys_update_btn").addClass('hide');
+	$("#hide_sys_update_btn").removeClass('hide');
+	
+	//CHECKING ALL THE REMARK TYPES
+	var rem_type_count = 0;
+	$.each($("#remark_types_dropdown li"), function(){
+		var rem_type = $.trim($(this).text());
+		if(!$('#remark_types_dropdown [value="'+rem_type+'"]').is(':checked')) {
+			$('#remark_types_dropdown [value="'+rem_type+'"]').prop('checked',true);
+		}
+		if(rem_type != '' && rem_type != 'MORE'){
+			rem_type_count++;
+		}
+	});
+	
+ 	$("#remark_filter_div").addClass('hide');
+//	$("#list_heading").html('All Remark Types');
+    $("#filter_remark_type").val('');
+    $("#filter_remark_type").attr('remark_type_count',rem_type_count);
+	$('#remark_filter_div').addClass('hide');
+
+	if(from_page == 'ACCOUNT_DETAIL') {
+		LoadMoreDetailSysUdates(15, 'history_timeline', 'more_history_btn');
+	}
+	else{
+		LoadMoreAccountSysUdates(15, 'history_timeline', 'more_history_btn');
+	}
+}
+
+function HideSystemUpdates() {
+	HidePopover();
+	$("#sys_updates").val('0');
+	$("#filter_remark_type").val('');
+	$('#history_timeline').html('');
+	$('#history_timeline').attr('limit_from',0);
+	$('#more_history_btn').show();
+
+	$("#show_sys_update_btn").removeClass('hide');
+	$("#hide_sys_update_btn").addClass('hide');
+	
+	var rem_type_count = 0;
+	
+	// UN CHECKING ALL THE INTERNAL REMARK TYPES 
+	$.each($("#remark_types_dropdown li"), function(){
+		var rem_type = $.trim($(this).text());
+		if(rem_type != 'MORE' && rem_type != ''){ 
+        	var rem_index = remark_filter.indexOf(rem_type);
+        	
+    		if($(this).hasClass('sys_remarks')){
+        		if($('#remark_types_dropdown [value="'+rem_type+'"]').is(':checked')) {
+        			$('#remark_types_dropdown [value="'+rem_type+'"]').prop('checked',false);
+        		}
+				
+				//IF SYSTEM REMARK TYPE ALREADY AVAILABLE IN THE ARRAY, REMOVING IN THE REMARK FILTER ARRAY
+                if (rem_index !== -1) {
+                    remark_filter.splice(rem_index, 1);
+            	}
+        		$(this).addClass('hide');
+        	}
+        	else {
+            	rem_type_count++;
+        		if(rem_index == -1){
+                	remark_filter.push(rem_type);
+                	$('#remark_types_dropdown [value="'+rem_type+'"]').prop('checked',true);
+                }
+            }
+    	}
+    	
+	});
+    $("#filter_remark_type").val(JSON.stringify(remark_filter));
+ 	$("#remark_filter_div").addClass('hide');
+//	$("#list_heading").html('Remark Types within '+ remark_filter.join(", "));
+    $("#filter_remark_type").attr('remark_type_count',rem_type_count);
+	$('#more_options').removeClass('hide');
+
+	if(from_page == 'ACCOUNT_DETAIL') {
+		LoadMoreDetailSysUdates(15, 'history_timeline', 'more_history_btn');
+	}
+	else{
+		LoadMoreAccountSysUdates(15, 'history_timeline', 'more_history_btn');
+	}
+}
+
+function CheckExportRemarksToExcel(){
+	var account_no = $("#account_number").val(),
+		include_sys_updates = parseInt($('#sys_updates').val());
+		var selected_remark_types = $('#filter_remark_type').val();
+		var selected_remark_types_count = parseInt($('#filter_remark_type').attr('remark_type_count'));
+		
+		if(selected_remark_types_count > 0) {
+            $.ajax({
+                    type: "POST",
+                    url: "/core/ajax_manage_account.php",
+                    data: {account_no:account_no,include_sys_updates:include_sys_updates,obj:'remark',action:'check_remarks_row_limit', filter: selected_remark_types},
+                    dataType: 'json',
+                    success: function(data) { 
+                        if(data.RESPONSE == 'SUCCESS'){
+                        	ExportRemarksToExcel('ACCOUNT', account_no, include_sys_updates, data.TOTAL_ROW_COUNT, selected_remark_types); //Expected format ExportRemarksToExcel(context='LEAD', context_no='', include_sys_updates=0, total_row_count=0, selected_remark_types)
+                        }
+                        else if(data.RESPONSE == 'LIMIT_EXCEEDED'){
+                            var max_row_limit = $('#max_report_rows').val();
+                            bootbox.confirm({
+                                message: "Your export request has resulted in more than the allowed limit of rows("+max_row_limit+"). So it will export Only the latest "+max_row_limit+" rows in excel.",
+                                callback: function(result) {
+                                            if(result) {
+                                            	ExportRemarksToExcel('ACCOUNT', account_no, include_sys_updates, data.TOTAL_ROW_COUNT, selected_remark_types); //Expected format ExportRemarksToExcel(context='LEAD', context_no='', include_sys_updates=0, total_row_count=0, selected_remark_types)
+                                            }
+                                        }
+                            });
+                        }
+                        else if(data.RESPONSE == 'ERROR'){
+                            // ERROR GREET MESSAGE
+                        }
+                    }
+            });
+      }
+      else {
+    	  bootbox.alert('Please select a remark type to export to excel.');
+      }
+}
+</script>
